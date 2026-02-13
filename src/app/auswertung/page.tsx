@@ -1,8 +1,5 @@
 "use client";
 
-import Link from "next/link";
-
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -23,8 +20,6 @@ import { useAuftrag } from "@/context/auftrag-context";
 import { createStepState } from "@/lib/auftrag-data";
 import type { Auftrag, WorkStepKey } from "@/lib/auftrag-types";
 import { workStepLabels } from "@/lib/auftrag-types";
-
-import { Home } from "lucide-react";
 
 const WORK_STEP_KEYS: WorkStepKey[] = [
   "tb",
@@ -80,21 +75,6 @@ export default function AuswertungPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background px-3 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex w-full max-w-[2000px] items-center gap-2 pb-3">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/" className="flex items-center gap-2">
-            <Home className="h-4 w-4" />
-            Home
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/planung">Planung</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/werkstatt">Werkstatt</Link>
-        </Button>
-      </div>
-
       <Card className="mx-auto flex w-full max-w-[2000px] flex-1 flex-col gap-4">
         <CardHeader>
           <CardTitle className="text-2xl sm:text-3xl">

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { ChevronDown, ChevronUp, Copy, Home, Layers, Pause, Play, Square } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Layers, Pause, Play, Square, Trash2 } from "lucide-react";
 
 type Projektstatus =
   | "offen"
@@ -356,7 +355,9 @@ export default function PlanungPage() {
   const {
     auftraege,
     setAuftraege,
+    setDateiStore,
     updateAuftrag,
+    updateAuftragFromPlanung,
     dateiStore,
     addFileOriginal,
     addFileReady,
@@ -369,6 +370,7 @@ export default function PlanungPage() {
   );
   const [filter, setFilter] = useState<SpaltenFilter>(leereFilter);
   const [, forceUpdate] = useState(0);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const hasRunningTb = auftraege.some(
     (a) => a.steps?.tb?.isRunning
@@ -419,9 +421,14 @@ export default function PlanungPage() {
 
   const handlePrioChange = (id: number, delta: 1 | -1) => {
     setAuftraege((prev) => {
-      const updated = prev.map((a) =>
-        a.id === id ? { ...a, prio: Math.max(1, a.prio + delta) } : a,
-      );
+      const updated = prev.map((a) => {
+        if (a.id !== id) return a;
+        const next = { ...a, prio: Math.max(1, a.prio + delta) };
+        if (a.projektstatus === "Bearbeitung in WS") {
+          next.aenderungenDurchPlanung = true;
+        }
+        return next;
+      });
 
       // Nach Prio sortieren, damit sich die Zeile entsprechend verschiebt
       return [...updated].sort((a, b) => {
@@ -441,7 +448,7 @@ export default function PlanungPage() {
 
     const file = fileList[0];
     addFileOriginal(id, file);
-    updateAuftrag(id, {
+    updateAuftragFromPlanung(id, {
       hatOriginalDatei: true,
       originalDateiName: file.name,
     });
@@ -456,7 +463,7 @@ export default function PlanungPage() {
 
     addFileReady(id, file);
     const mitDatei = { ...auftrag, hatReadyDatei: true };
-    updateAuftrag(id, {
+    updateAuftragFromPlanung(id, {
       hatReadyDatei: true,
       readyDateiName: file.name,
       ...(canSetReadyFürWS(mitDatei) && { projektstatus: "Ready für WS" }),
@@ -524,6 +531,49 @@ export default function PlanungPage() {
     setFormMode("edit");
   };
 
+  const hasUnsavedChanges = (a: Auftrag) => {
+    return (
+      formAuftrag.commissionNr !== a.commissionNr ||
+      formAuftrag.projektleiter !== a.projektleiter ||
+      formAuftrag.projektKurzname !== a.projektKurzname ||
+      formAuftrag.kundeName !== a.kundeName ||
+      formAuftrag.prio !== a.prio ||
+      formAuftrag.projektstatus !== a.projektstatus ||
+      formAuftrag.deadline !== a.deadline ||
+      formAuftrag.blechTyp !== a.blechTyp ||
+      formAuftrag.format !== a.format ||
+      formAuftrag.transport !== a.transport ||
+      formAuftrag.anzahl !== a.anzahl ||
+      formAuftrag.flaechM2 !== a.flaechM2 ||
+      formAuftrag.scheren !== a.scheren ||
+      formAuftrag.lasern !== a.lasern ||
+      formAuftrag.kanten !== a.kanten ||
+      formAuftrag.schweissen !== a.schweissen ||
+      formAuftrag.behandeln !== a.behandeln ||
+      formAuftrag.eckenGefeilt !== a.eckenGefeilt ||
+      formAuftrag.deadlineBestaetigt !== a.deadlineBestaetigt
+    );
+  };
+
+  const showBitteSpeichern = () => {
+    setNotification("Bitte speichern");
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const togglePlanungExpand = (auftrag: Auftrag) => {
+    if (editingId === auftrag.id) {
+      const a = auftraege.find((x) => x.id === auftrag.id);
+      if (a && hasUnsavedChanges(a)) {
+        showBitteSpeichern();
+        return;
+      }
+      setFormMode("none");
+      setEditingId(null);
+    } else {
+      handleOpenEditAuftrag(auftrag);
+    }
+  };
+
   const handleCopyAuftrag = (auftrag: Auftrag) => {
     const newId = getNextId();
     const { steps: _steps, ...auftragOhneSteps } = auftrag;
@@ -545,6 +595,30 @@ export default function PlanungPage() {
       }),
     );
     handleOpenEditAuftrag(copy);
+  };
+
+  const LOESCHBARE_STATI: Projektstatus[] = [
+    "offen",
+    "Bearbeitung in TB",
+    "Ready für WS",
+  ];
+
+  const handleDeleteAuftrag = (auftrag: Auftrag) => {
+    if (!LOESCHBARE_STATI.includes(auftrag.projektstatus)) return;
+    const bestaetigt = window.confirm(
+      `Soll das Projekt "${auftrag.projektKurzname}" (${formatCommissionNrDisplay(auftrag.commissionNr)}) unwiderruflich gelöscht werden?`
+    );
+    if (!bestaetigt) return;
+    setAuftraege((prev) => prev.filter((a) => a.id !== auftrag.id));
+    setDateiStore((prev) => {
+      const next = new Map(prev);
+      next.delete(auftrag.id);
+      return next;
+    });
+    if (editingId === auftrag.id) {
+      setFormMode("none");
+      setEditingId(null);
+    }
   };
 
   const handleCancelForm = () => {
@@ -629,31 +703,34 @@ export default function PlanungPage() {
           ? existierend!.projektstatus
           : formAuftrag.projektstatus;
       setAuftraege((prev) =>
-        prev.map((a) =>
-          a.id === editingId
-            ? {
-                ...a,
-                commissionNr,
-                projektKurzname: formAuftrag.projektKurzname.trim(),
-                kundeName: formAuftrag.kundeName.trim(),
-                prio: formAuftrag.prio,
-                projektstatus,
-                deadline: formAuftrag.deadline,
-                deadlineBestaetigt: formAuftrag.deadlineBestaetigt,
-                blechTyp: formAuftrag.blechTyp.trim(),
-                format: formAuftrag.format.trim(),
-                transport: formAuftrag.transport,
-                anzahl: formAuftrag.anzahl,
-                flaechM2: formAuftrag.flaechM2,
-                scheren: formAuftrag.scheren,
-                lasern: formAuftrag.lasern,
-                kanten: formAuftrag.kanten,
-                schweissen: formAuftrag.schweissen,
-                behandeln: formAuftrag.behandeln,
-                eckenGefeilt: formAuftrag.eckenGefeilt,
-              }
-            : a,
-        ).sort((a, b) => {
+        prev.map((a) => {
+          if (a.id !== editingId) return a;
+          const next = {
+            ...a,
+            commissionNr,
+            projektKurzname: formAuftrag.projektKurzname.trim(),
+            kundeName: formAuftrag.kundeName.trim(),
+            prio: formAuftrag.prio,
+            projektstatus,
+            deadline: formAuftrag.deadline,
+            deadlineBestaetigt: formAuftrag.deadlineBestaetigt,
+            blechTyp: formAuftrag.blechTyp.trim(),
+            format: formAuftrag.format.trim(),
+            transport: formAuftrag.transport,
+            anzahl: formAuftrag.anzahl,
+            flaechM2: formAuftrag.flaechM2,
+            scheren: formAuftrag.scheren,
+            lasern: formAuftrag.lasern,
+            kanten: formAuftrag.kanten,
+            schweissen: formAuftrag.schweissen,
+            behandeln: formAuftrag.behandeln,
+            eckenGefeilt: formAuftrag.eckenGefeilt,
+          };
+          if (existierend!.projektstatus === "Bearbeitung in WS") {
+            next.aenderungenDurchPlanung = true;
+          }
+          return next;
+        }).sort((a, b) => {
           if (a.prio === b.prio) {
             return a.id - b.id;
           }
@@ -901,28 +978,47 @@ export default function PlanungPage() {
         <div className="space-y-1 text-sm">
           <div className="font-medium">Fertigungsschritte</div>
           <div className="flex flex-wrap gap-2 text-xs">
-            {[
-              ["S", "Scheren", "scheren"] as const,
-              ["L", "Lasern", "lasern"] as const,
-              ["K", "Kanten", "kanten"] as const,
-              ["W", "Schweissen", "schweissen"] as const,
-              ["B", "Behandeln", "behandeln"] as const,
-              ["E", "Ecken", "eckenGefeilt"] as const,
-            ].map(([short, label, key]) => {
-              const active = formAuftrag[key as keyof NewAuftrag] as boolean;
+            {(
+              [
+                ["S", "Scheren", "scheren"],
+                ["L", "Lasern", "lasern"],
+                ["K", "Kanten", "kanten"],
+                ["W", "Schweissen", "schweissen"],
+                ["B", "Behandeln", "behandeln"],
+                ["E", "Ecken", "eckenGefeilt"],
+              ] as const
+            ).map(([short, label, stepKey]) => {
+              const active = formAuftrag[stepKey as keyof NewAuftrag] as boolean;
+              const editedAuftrag =
+                formMode === "edit" && editingId != null
+                  ? auftraege.find((a) => a.id === editingId)
+                  : null;
+              const steps = editedAuftrag
+                ? editedAuftrag.steps ?? createStepState(editedAuftrag)
+                : null;
+              const step = steps?.[stepKey] ?? null;
+              const completed =
+                step &&
+                step.totalMinutes > 0 &&
+                !step.isRunning &&
+                !step.isPaused;
+              const inBearbeitung = step && (step.isRunning || step.isPaused);
+              const badgeClass = !active
+                ? "bg-muted text-muted-foreground"
+                : completed
+                  ? "border-green-600 bg-green-600 text-white"
+                  : inBearbeitung
+                    ? "border-orange-500 bg-orange-500 text-white"
+                    : "bg-primary text-primary-foreground";
               return (
                 <button
-                  key={key}
+                  key={stepKey}
                   type="button"
-                  className={`flex h-7 items-center justify-center rounded-full px-2 ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
+                  className={`flex h-7 items-center justify-center rounded-full border px-2 ${badgeClass}`}
                   onClick={() =>
                     setFormAuftrag((prev) => ({
                       ...prev,
-                      [key]: !(prev[key as keyof NewAuftrag] as boolean),
+                      [stepKey]: !(prev[stepKey as keyof NewAuftrag] as boolean),
                     }))
                   }
                   title={label}
@@ -939,20 +1035,23 @@ export default function PlanungPage() {
 
   const renderPlanungRow = (auftrag: Auftrag, opts?: { hidePrio?: boolean }) => (
     <Fragment key={auftrag.id}>
-      <TableRow className={getRowClassName(auftrag)}>
-      <TableCell className="w-10">
+      <TableRow
+        className={`${getRowClassName(auftrag)} cursor-pointer`}
+        onClick={() => togglePlanungExpand(auftrag)}
+      >
+      <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
         <Button
           size="icon-sm"
           variant="ghost"
           className="h-8 w-8 rounded-full border border-input text-sm"
-          onClick={() => handleOpenEditAuftrag(auftrag)}
+          onClick={() => togglePlanungExpand(auftrag)}
           aria-label="Auftrag bearbeiten"
         >
           ✎
         </Button>
       </TableCell>
       {!opts?.hidePrio && (
-        <TableCell className="w-12 p-1">
+        <TableCell className="w-12 p-1" onClick={(e) => e.stopPropagation()}>
           <div className="flex flex-col items-center gap-0">
             <Button
               size="icon-sm"
@@ -978,14 +1077,14 @@ export default function PlanungPage() {
           </div>
         </TableCell>
       )}
-      <TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-1">
           <Input
             type="datetime-local"
             className="h-11 text-sm"
             value={auftrag.deadline}
             onChange={(e) =>
-              updateAuftrag(auftrag.id, {
+              updateAuftragFromPlanung(auftrag.id, {
                 deadline: e.target.value,
               })
             }
@@ -1000,7 +1099,7 @@ export default function PlanungPage() {
           )}
         </div>
       </TableCell>
-      <TableCell className="font-medium">
+      <TableCell className="font-medium" onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-0.5 text-sm">
           <div className="flex items-center gap-1.5">
             <span>{formatCommissionNrDisplay(auftrag.commissionNr)}</span>
@@ -1047,6 +1146,7 @@ export default function PlanungPage() {
         </div>
       </TableCell>
       <TableCell
+        onClick={(e) => e.stopPropagation()}
         className={
           auftrag.projektstatus === "fertig"
             ? "bg-green-100"
@@ -1071,7 +1171,7 @@ export default function PlanungPage() {
               !canSetReadyFürWS(auftrag)
             )
               return;
-            updateAuftrag(auftrag.id, {
+            updateAuftragFromPlanung(auftrag.id, {
               projektstatus: v,
             });
           }}
@@ -1119,29 +1219,43 @@ export default function PlanungPage() {
       </TableCell>
       <TableCell>
         <div className="flex flex-nowrap items-center gap-1 text-[10px]">
-          {[
-            ["S", auftrag.scheren, "Scheren"],
-            ["L", auftrag.lasern, "Lasern"],
-            ["K", auftrag.kanten, "Kanten"],
-            ["W", auftrag.schweissen, "Schweissen"],
-            ["B", auftrag.behandeln, "Behandeln"],
-            ["E", auftrag.eckenGefeilt, "Ecken gefeilt"],
-          ].map(([short, active, title]) => (
-            <span
-              key={String(short)}
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
-                active
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-muted bg-muted/50 text-muted-foreground"
-              }`}
-              title={title as string}
-            >
-              {short}
-            </span>
-          ))}
+          {(
+            [
+              ["S", auftrag.scheren, "scheren"],
+              ["L", auftrag.lasern, "lasern"],
+              ["K", auftrag.kanten, "kanten"],
+              ["W", auftrag.schweissen, "schweissen"],
+              ["B", auftrag.behandeln, "behandeln"],
+              ["E", auftrag.eckenGefeilt, "eckenGefeilt"],
+            ] as const
+          ).map(([short, active, stepKey]) => {
+            const steps = auftrag.steps ?? createStepState(auftrag);
+            const step = steps[stepKey];
+            const completed =
+              step &&
+              step.totalMinutes > 0 &&
+              !step.isRunning &&
+              !step.isPaused;
+            const inBearbeitung = step && (step.isRunning || step.isPaused);
+            const badgeClass = !active
+              ? "border-muted bg-muted/50 text-muted-foreground"
+              : completed
+                ? "border-green-600 bg-green-600 text-white"
+                : inBearbeitung
+                  ? "border-orange-500 bg-orange-500 text-white"
+                  : "border-primary bg-primary text-primary-foreground";
+            return (
+              <span
+                key={String(short)}
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${badgeClass}`}
+              >
+                {short}
+              </span>
+            );
+          })}
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-2">
           <Input
             type="file"
@@ -1184,7 +1298,7 @@ export default function PlanungPage() {
           </div>
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-2">
           <Input
             type="file"
@@ -1222,7 +1336,7 @@ export default function PlanungPage() {
           </div>
         </div>
       </TableCell>
-      <TableCell className="w-10">
+      <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
         <Button
           size="icon-sm"
           variant="ghost"
@@ -1233,7 +1347,7 @@ export default function PlanungPage() {
           <Copy className="h-4 w-4" />
         </Button>
       </TableCell>
-      <TableCell className="w-[160px] min-w-[160px]">
+      <TableCell className="w-[160px] min-w-[160px]" onClick={(e) => e.stopPropagation()}>
         {(auftrag.projektstatus === "offen" ||
           auftrag.projektstatus === "Bearbeitung in TB") && (() => {
           const steps = auftrag.steps ?? createStepState(auftrag);
@@ -1287,11 +1401,26 @@ export default function PlanungPage() {
           );
         })()}
       </TableCell>
+      <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+        {LOESCHBARE_STATI.includes(auftrag.projektstatus) ? (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="h-8 w-8 rounded-full border border-destructive/50 text-destructive hover:bg-destructive/10"
+            onClick={() => handleDeleteAuftrag(auftrag)}
+            aria-label="Auftrag löschen"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : (
+          <span className="text-muted-foreground text-xs">–</span>
+        )}
+      </TableCell>
     </TableRow>
     {formMode === "edit" && editingId === auftrag.id && (
       <TableRow className="bg-muted/20 hover:bg-muted/20">
         <TableCell
-          colSpan={opts?.hidePrio ? 16 : 17}
+          colSpan={opts?.hidePrio ? 17 : 18}
           className="p-0 align-top"
         >
           <div className="p-4">{renderPlanungFormContent()}</div>
@@ -1303,23 +1432,14 @@ export default function PlanungPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background px-3 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 pb-3">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/" className="flex items-center gap-2">
-            <Home className="h-4 w-4" />
-            Home
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/werkstatt">Werkstatt</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/auswertung">Auswertung</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/benutzer">Benutzer</Link>
-        </Button>
-      </div>
+      {notification && (
+        <div
+          className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-amber-500 bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900 shadow-lg dark:border-amber-600 dark:bg-amber-900/90 dark:text-amber-100"
+          role="alert"
+        >
+          {notification}
+        </div>
+      )}
       <Card className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col gap-4">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1402,6 +1522,7 @@ export default function PlanungPage() {
                       </TableHead>
                       <TableHead className="w-10"></TableHead>
                       <TableHead className="min-w-[160px]">TB Zeit</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                     <TableRow className="bg-muted/30">
                       <TableCell className="p-1" />
@@ -1583,13 +1704,14 @@ export default function PlanungPage() {
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
+                      <TableCell className="p-1" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {tab1Auftraege.map((a) => renderPlanungRow(a))}
                     {tab1Auftraege.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={17} className="py-6 text-center">
+                        <TableCell colSpan={18} className="py-6 text-center">
                           <span className="text-sm text-muted-foreground">
                             Keine Aufträge in dieser Kategorie.
                           </span>
@@ -1642,6 +1764,7 @@ export default function PlanungPage() {
                       </TableHead>
                       <TableHead className="w-10"></TableHead>
                       <TableHead className="min-w-[160px]">TB Zeit</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                     <TableRow className="bg-muted/30">
                       <TableCell className="p-1" />
@@ -1824,13 +1947,14 @@ export default function PlanungPage() {
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
+                      <TableCell className="p-1" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {transportAuftraege.map((a) => renderPlanungRow(a))}
                     {transportAuftraege.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={17} className="py-6 text-center">
+                        <TableCell colSpan={18} className="py-6 text-center">
                           <span className="text-sm text-muted-foreground">
                             Keine Aufträge in dieser Kategorie.
                           </span>
@@ -1883,6 +2007,7 @@ export default function PlanungPage() {
                       </TableHead>
                       <TableHead className="w-10"></TableHead>
                       <TableHead className="min-w-[160px]">TB Zeit</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                     <TableRow className="bg-muted/30">
                       <TableCell className="p-1" />
@@ -2065,13 +2190,14 @@ export default function PlanungPage() {
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
+                      <TableCell className="p-1" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {tab2Auftraege.map((a) => renderPlanungRow(a))}
                     {tab2Auftraege.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={17} className="py-6 text-center">
+                        <TableCell colSpan={18} className="py-6 text-center">
                           <span className="text-sm text-muted-foreground">
                             Keine Aufträge in diesem Bereich.
                           </span>
@@ -2123,6 +2249,7 @@ export default function PlanungPage() {
                       </TableHead>
                       <TableHead className="w-10"></TableHead>
                       <TableHead className="min-w-[160px]">TB Zeit</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                     <TableRow className="bg-muted/30">
                       <TableCell className="p-1" />
@@ -2304,13 +2431,14 @@ export default function PlanungPage() {
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
                       <TableCell className="p-1" />
+                      <TableCell className="p-1" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {tab3Auftraege.map((a) => renderPlanungRow(a, { hidePrio: true }))}
                     {tab3Auftraege.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={16} className="py-6 text-center">
+                        <TableCell colSpan={17} className="py-6 text-center">
                           <span className="text-sm text-muted-foreground">
                             Noch keine fertigen Aufträge.
                           </span>

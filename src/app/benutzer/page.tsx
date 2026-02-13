@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +28,7 @@ import {
 } from "@/lib/benutzer-types";
 
 import { Badge } from "@/components/ui/badge";
-import { Home, Mail, Pencil, Trash2, UserPlus } from "lucide-react";
+import { Mail, Pencil, Trash2, UserPlus } from "lucide-react";
 
 export default function BenutzerPage() {
   const { benutzer, addBenutzer, updateBenutzer, removeBenutzer } =
@@ -92,24 +91,6 @@ export default function BenutzerPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background px-3 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex w-full max-w-[1200px] items-center gap-2 pb-3">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/" className="flex items-center gap-2">
-            <Home className="h-4 w-4" />
-            Home
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/planung">Planung</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/werkstatt">Werkstatt</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/auswertung">Auswertung</Link>
-        </Button>
-      </div>
-
       <Card className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-4">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>

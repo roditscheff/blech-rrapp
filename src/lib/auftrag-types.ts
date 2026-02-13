@@ -61,6 +61,8 @@ export type Auftrag = {
   behandeln: boolean;
   eckenGefeilt: boolean;
   steps?: Record<WorkStepKey, WorkStepState>;
+  /** true wenn TB/Projektleiter Änderungen gemacht hat, während Projekt in Bearbeitung in WS war */
+  aenderungenDurchPlanung?: boolean;
 };
 
 export const workStepLabels: Record<WorkStepKey, string> = {

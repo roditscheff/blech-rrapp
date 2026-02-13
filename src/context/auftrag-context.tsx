@@ -22,6 +22,8 @@ type AuftragContextValue = {
   auftraege: Auftrag[];
   setAuftraege: React.Dispatch<React.SetStateAction<Auftrag[]>>;
   updateAuftrag: (id: number, partial: Partial<Auftrag>) => void;
+  /** Wie updateAuftrag, setzt aenderungenDurchPlanung wenn Projekt in Bearbeitung in WS */
+  updateAuftragFromPlanung: (id: number, partial: Partial<Auftrag>) => void;
   dateiStore: DateiStore;
   setDateiStore: React.Dispatch<React.SetStateAction<DateiStore>>;
   addFileOriginal: (id: number, file: File) => void;
@@ -59,6 +61,31 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
       }),
     );
   }, []);
+
+  const updateAuftragFromPlanung = useCallback(
+    (id: number, partial: Partial<Auftrag>) => {
+      setAuftraege((prev) =>
+        prev.map((a) => {
+          if (a.id !== id) return a;
+          const next = { ...a, ...partial };
+          if (a.projektstatus === "Bearbeitung in WS") {
+            next.aenderungenDurchPlanung = true;
+          }
+          if ("projektstatus" in partial && a.steps?.tb) {
+            const status = next.projektstatus;
+            const tbErforderlich =
+              status === "offen" || status === "Bearbeitung in TB";
+            next.steps = {
+              ...a.steps,
+              tb: { ...a.steps.tb, erforderlich: tbErforderlich },
+            };
+          }
+          return next;
+        }),
+      );
+    },
+    [],
+  );
 
   const addFileOriginal = useCallback((id: number, file: File) => {
     setDateiStore((prev) => {
@@ -224,6 +251,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
         auftraege,
         setAuftraege,
         updateAuftrag,
+        updateAuftragFromPlanung,
         dateiStore,
         setDateiStore,
         addFileOriginal,

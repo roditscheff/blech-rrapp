@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +25,7 @@ import { createStepState } from "@/lib/auftrag-data";
 import type { Auftrag, Projektstatus, WorkStepKey } from "@/lib/auftrag-types";
 import { workStepLabels } from "@/lib/auftrag-types";
 
-import { ChevronDown, ChevronUp, Home, Layers, Pause, Pencil, Play, Square } from "lucide-react";
+import { ChevronDown, ChevronUp, Layers, Pause, Pencil, Play, Square } from "lucide-react";
 
 function formatCommissionNr(nr: string): string {
   return nr.replace(/\D/g, "").padStart(6, "0").slice(0, 6);
@@ -110,6 +109,7 @@ export default function WerkstattPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [, forceUpdate] = useState(0);
   const [commissionFilter, setCommissionFilter] = useState<string>("");
+  const expandedRowRef = useRef<HTMLDivElement | null>(null);
 
   const hasRunningStep = auftraege.some(
     (a) =>
@@ -123,12 +123,25 @@ export default function WerkstattPage() {
     return () => clearInterval(id);
   }, [hasRunningStep]);
 
+  useEffect(() => {
+    if (expandedId == null) return;
+    const el = expandedRowRef.current;
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+  }, [expandedId]);
+
   const toggleExpand = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
   const getRowClassName = (auftrag: Auftrag) => {
     const base = "text-base hover:bg-muted/60 bg-white cursor-pointer";
+    if (auftrag.aenderungenDurchPlanung) {
+      return `${base} border-l-4 border-red-500 bg-red-50`;
+    }
     if (auftrag.projektstatus !== "fertig" && auftrag.deadline) {
       const d = new Date(auftrag.deadline);
       if (!Number.isNaN(d.getTime())) {
@@ -210,6 +223,25 @@ export default function WerkstattPage() {
 
     return (
       <div className="space-y-6 rounded-lg border border-muted-foreground/20 bg-muted/30 p-4 text-base">
+        {auftrag.aenderungenDurchPlanung && (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-red-500 bg-red-50 px-4 py-3 text-sm text-red-900 dark:bg-red-950/50 dark:text-red-100">
+            <span className="font-medium">
+              TB/Projektleiter hat Änderungen vorgenommen – bitte prüfen.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 border-red-500 text-red-700 hover:bg-red-100 dark:border-red-600 dark:text-red-200 dark:hover:bg-red-900/50"
+              onClick={(e) => {
+                e.stopPropagation();
+                updateAuftrag(auftrag.id, { aenderungenDurchPlanung: false });
+              }}
+            >
+              Gesehen
+            </Button>
+          </div>
+        )}
         {/* Read-only Stammdaten (wie Erfassung) */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1">
@@ -342,72 +374,32 @@ export default function WerkstattPage() {
           )}
         </div>
 
-        {/* Bearbeitbar: Arbeitsschritte – Start/Pause/Stop Buttons + Lead-Dropdown */}
+        {/* Bearbeitbar: Arbeitsschritte – Mitarbeiter zuerst, dann Start/Stop (touch-optimiert) */}
         <div className="space-y-2">
           <div className="text-muted-foreground text-sm font-medium">
             Arbeitsschritte
           </div>
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-wrap gap-6">
             {benoetigteSchritte.map((key) => {
               const step = steps[key];
               if (!step) return null;
               const isRunning = step.isRunning;
               const isPaused = step.isPaused ?? false;
               const isActive = isRunning || isPaused;
+              const kannBearbeiten =
+                auftrag.projektstatus === "Bearbeitung in WS";
               return (
-                <div key={key} className="flex flex-col items-center gap-1">
-                  <div className="text-muted-foreground text-xs font-medium">
+                <div
+                  key={key}
+                  className="flex flex-col items-center gap-2 rounded-lg border-2 border-muted-foreground/30 bg-muted/20 p-4"
+                >
+                  <div className="text-foreground text-lg font-semibold">
                     {workStepLabels[key]}
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="lg"
-                        variant={isRunning ? "outline" : "default"}
-                        className={`min-h-14 min-w-[7rem] text-base ${
-                          isRunning
-                            ? ""
-                            : "bg-green-600 hover:bg-green-700"
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          stepAction(
-                            auftrag.id,
-                            key,
-                            isRunning ? "pause" : "start"
-                          );
-                        }}
-                      >
-                        {isRunning ? (
-                          <>
-                            <Pause className="mr-1 h-4 w-4" />
-                            Pause
-                          </>
-                        ) : (
-                          <>
-                            <Play className="mr-1 h-4 w-4" />
-                            Start
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="lg"
-                        variant="destructive"
-                        className="min-h-14 min-w-[6rem] text-base bg-red-600 hover:bg-red-700"
-                        disabled={!isActive}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          stepAction(auftrag.id, key, "stop");
-                        }}
-                      >
-                        <Square className="mr-1 h-4 w-4" />
-                        Stop
-                      </Button>
-                    </div>
+                    {/* Mitarbeiter-Auswahl zuerst – logischer Ablauf: erst wer, dann Start */}
                     <select
-                      className="border-input bg-background h-9 w-20 rounded border px-1.5 text-xs"
+                      className="border-input bg-background min-h-14 min-w-[8rem] cursor-pointer rounded-lg border-2 px-4 py-3 text-base font-medium"
                       value={step.lead ?? ""}
                       onChange={(e) => {
                         e.stopPropagation();
@@ -420,17 +412,66 @@ export default function WerkstattPage() {
                         });
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      title="Lead für diesen Schritt"
+                      title="Mitarbeiter für diesen Schritt"
                     >
-                      <option value="">–</option>
+                      <option value="">– Mitarbeiter –</option>
                       {WORKSHOP_MITARBEITER.map((m) => (
                         <option key={m} value={m}>
                           {m}
                         </option>
                       ))}
                     </select>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="lg"
+                        variant={isRunning ? "outline" : "default"}
+                        className={`min-h-14 min-w-[8rem] text-base ${
+                          isRunning
+                            ? ""
+                            : "bg-green-600 hover:bg-green-700"
+                        }`}
+                        disabled={!kannBearbeiten}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!kannBearbeiten) return;
+                          stepAction(
+                            auftrag.id,
+                            key,
+                            isRunning ? "pause" : "start"
+                          );
+                        }}
+                      >
+                        {isRunning ? (
+                          <>
+                            <Pause className="mr-1 h-5 w-5" />
+                            Pause
+                          </>
+                        ) : (
+                          <>
+                            <Play className="mr-1 h-5 w-5" />
+                            Start
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="lg"
+                        variant="destructive"
+                        className="min-h-14 min-w-[8rem] text-base bg-red-600 hover:bg-red-700"
+                        disabled={!kannBearbeiten || !isActive}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!kannBearbeiten) return;
+                          stepAction(auftrag.id, key, "stop");
+                        }}
+                      >
+                        <Square className="mr-1 h-5 w-5" />
+                        Stop
+                      </Button>
+                    </div>
                   </div>
-                  <span className="text-muted-foreground text-sm">
+                  <span className="text-muted-foreground text-base">
                     {formatMinuteSeconds(step.totalMinutes, step.startedAt)}
                   </span>
                 </div>
@@ -579,25 +620,39 @@ export default function WerkstattPage() {
           </TableCell>
           <TableCell>
             <div className="flex flex-nowrap items-center gap-1 text-[10px]">
-              {[
-                ["S", auftrag.scheren],
-                ["L", auftrag.lasern],
-                ["K", auftrag.kanten],
-                ["W", auftrag.schweissen],
-                ["B", auftrag.behandeln],
-                ["E", auftrag.eckenGefeilt],
-              ].map(([short, active]) => (
-                <span
-                  key={String(short)}
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
-                    active
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-muted bg-muted/50 text-muted-foreground"
-                  }`}
-                >
-                  {short}
-                </span>
-              ))}
+              {(
+                [
+                  ["S", auftrag.scheren, "scheren"],
+                  ["L", auftrag.lasern, "lasern"],
+                  ["K", auftrag.kanten, "kanten"],
+                  ["W", auftrag.schweissen, "schweissen"],
+                  ["B", auftrag.behandeln, "behandeln"],
+                  ["E", auftrag.eckenGefeilt, "eckenGefeilt"],
+                ] as const
+              ).map(([short, active, stepKey]) => {
+                const step = steps[stepKey];
+                const completed =
+                  step &&
+                  step.totalMinutes > 0 &&
+                  !step.isRunning &&
+                  !step.isPaused;
+                const inBearbeitung = step && (step.isRunning || step.isPaused);
+                const badgeClass = !active
+                  ? "border-muted bg-muted/50 text-muted-foreground"
+                  : completed
+                    ? "border-green-600 bg-green-600 text-white"
+                    : inBearbeitung
+                      ? "border-orange-500 bg-orange-500 text-white"
+                      : "border-primary bg-primary text-primary-foreground";
+                return (
+                  <span
+                    key={String(short)}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${badgeClass}`}
+                  >
+                    {short}
+                  </span>
+                );
+              })}
             </div>
           </TableCell>
           <TableCell>
@@ -656,7 +711,9 @@ export default function WerkstattPage() {
         {isExpanded && (
           <TableRow className="bg-muted/20 hover:bg-muted/20">
             <TableCell colSpan={opts?.hidePrio ? 15 : 16} className="p-0">
-              {renderExpandedContent(auftrag)}
+              <div ref={expandedRowRef}>
+                {renderExpandedContent(auftrag)}
+              </div>
             </TableCell>
           </TableRow>
         )}
@@ -707,23 +764,6 @@ export default function WerkstattPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background px-3 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 pb-3">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/" className="flex items-center gap-2">
-            <Home className="h-4 w-4" />
-            Home
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/planung">Planung</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/auswertung">Auswertung</Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/benutzer">Benutzer</Link>
-        </Button>
-      </div>
       <Card className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col gap-4">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
