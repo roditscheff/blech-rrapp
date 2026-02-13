@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/table";
 
 import { useAuftrag } from "@/context/auftrag-context";
+import { formatDateTimeCH } from "@/lib/utils";
 import { createStepState } from "@/lib/auftrag-data";
 import type { Auftrag, WorkStepKey } from "@/lib/auftrag-types";
 import { workStepLabels } from "@/lib/auftrag-types";
@@ -142,10 +144,19 @@ export default function AuswertungPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">
-                        {new Date(auftrag.deadline).toLocaleString("de-CH", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span>{formatDateTimeCH(auftrag.deadline)}</span>
+                            <Badge variant="secondary" className="text-[10px] font-normal">
+                              fix
+                            </Badge>
+                          </div>
+                          {auftrag.fertigAm && (
+                            <span className="text-muted-foreground text-xs">
+                              Fertig: {formatDateTimeCH(auftrag.fertigAm)}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm">
                         {auftrag.blechTyp} · {auftrag.format}
@@ -186,11 +197,16 @@ export default function AuswertungPage() {
                           step?.erforderlich
                             ? formatMinutes(step.totalMinutes)
                             : "–";
+                        const whoInfo = step
+                          ? [step.startedBy && `▶ ${step.startedBy}`, step.pausedBy && `⏸ ${step.pausedBy}`, step.stoppedBy && `⏹ ${step.stoppedBy}`]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : "";
                         return (
                           <TableCell
                             key={key}
                             className="text-center text-sm tabular-nums"
-                            title={workStepLabels[key]}
+                            title={whoInfo ? `${workStepLabels[key]}: ${whoInfo}` : workStepLabels[key]}
                           >
                             {min}
                           </TableCell>

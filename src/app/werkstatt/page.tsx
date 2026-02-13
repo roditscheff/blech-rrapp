@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -21,11 +22,17 @@ import {
 } from "@/components/ui/table";
 
 import { useAuftrag } from "@/context/auftrag-context";
-import { createStepState } from "@/lib/auftrag-data";
+import {
+  canSetFertig,
+  canSetReadyFürTransport,
+  canSetTransportGeplant,
+  createStepState,
+} from "@/lib/auftrag-data";
+import { formatDateTimeCH } from "@/lib/utils";
 import type { Auftrag, Projektstatus, WorkStepKey } from "@/lib/auftrag-types";
 import { workStepLabels } from "@/lib/auftrag-types";
 
-import { ChevronDown, ChevronUp, Layers, Pause, Pencil, Play, Square } from "lucide-react";
+import { ChevronDown, ChevronUp, Layers, Pause, Pencil, Play, Search, Square } from "lucide-react";
 
 function formatCommissionNr(nr: string): string {
   return nr.replace(/\D/g, "").padStart(6, "0").slice(0, 6);
@@ -109,6 +116,7 @@ export default function WerkstattPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [, forceUpdate] = useState(0);
   const [commissionFilter, setCommissionFilter] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const expandedRowRef = useRef<HTMLDivElement | null>(null);
 
   const hasRunningStep = auftraege.some(
@@ -123,6 +131,9 @@ export default function WerkstattPage() {
     return () => clearInterval(id);
   }, [hasRunningStep]);
 
+  const expandedAuftrag =
+    expandedId != null ? auftraege.find((a) => a.id === expandedId) : undefined;
+
   useEffect(() => {
     if (expandedId == null) return;
     const el = expandedRowRef.current;
@@ -131,7 +142,7 @@ export default function WerkstattPage() {
         el.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
-  }, [expandedId]);
+  }, [expandedId, expandedAuftrag?.projektstatus]);
 
   const toggleExpand = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -186,33 +197,56 @@ export default function WerkstattPage() {
         )
       : list;
 
-  const tab1 = filterByCommission(
-    auftraege
-      .filter((a) =>
-        a.projektstatus === "Ready für WS" ||
-        a.projektstatus === "Bearbeitung in WS"
-      )
-      .sort((a, b) => a.prio - b.prio)
+  const filterBySearch = <T extends Auftrag>(list: T[]) => {
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter(
+      (a) =>
+        a.commissionNr.toLowerCase().includes(q) ||
+        a.projektKurzname.toLowerCase().includes(q) ||
+        a.kundeName.toLowerCase().includes(q) ||
+        a.projektleiter.toLowerCase().includes(q) ||
+        a.blechTyp.toLowerCase().includes(q) ||
+        a.format.toLowerCase().includes(q) ||
+        a.transport.toLowerCase().includes(q)
+    );
+  };
+
+  const tab1 = filterBySearch(
+    filterByCommission(
+      auftraege
+        .filter((a) =>
+          a.projektstatus === "Ready für WS" ||
+          a.projektstatus === "Bearbeitung in WS"
+        )
+        .sort((a, b) => a.prio - b.prio)
+    )
   );
-  const transport = filterByCommission(
-    auftraege
-      .filter((a) =>
-        a.projektstatus === "Ready für Transport" ||
-        a.projektstatus === "Transport geplant"
-      )
-      .sort((a, b) => a.prio - b.prio)
+  const transport = filterBySearch(
+    filterByCommission(
+      auftraege
+        .filter((a) =>
+          a.projektstatus === "Ready für Transport" ||
+          a.projektstatus === "Transport geplant"
+        )
+        .sort((a, b) => a.prio - b.prio)
+    )
   );
-  const tab2 = filterByCommission(
-    auftraege
-      .filter((a) =>
-        a.projektstatus === "offen" || a.projektstatus === "Bearbeitung in TB"
-      )
-      .sort((a, b) => a.prio - b.prio)
+  const tab2 = filterBySearch(
+    filterByCommission(
+      auftraege
+        .filter((a) =>
+          a.projektstatus === "offen" || a.projektstatus === "Bearbeitung in TB"
+        )
+        .sort((a, b) => a.prio - b.prio)
+    )
   );
-  const tab3 = filterByCommission(
-    auftraege
-      .filter((a) => a.projektstatus === "fertig")
-      .sort((a, b) => a.prio - b.prio)
+  const tab3 = filterBySearch(
+    filterByCommission(
+      auftraege
+        .filter((a) => a.projektstatus === "fertig")
+        .sort((a, b) => a.prio - b.prio)
+    )
   );
 
   const renderExpandedContent = (auftrag: Auftrag) => {
@@ -222,7 +256,7 @@ export default function WerkstattPage() {
       auftrag.hatReadyDatei && dateiStore.get(auftrag.id)?.ready;
 
     return (
-      <div className="space-y-6 rounded-lg border border-muted-foreground/20 bg-muted/30 p-4 text-base">
+      <div className="rounded-lg border border-muted-foreground/20 bg-muted/30 p-3 text-sm">
         {auftrag.aenderungenDurchPlanung && (
           <div className="flex items-center justify-between gap-4 rounded-lg border border-red-500 bg-red-50 px-4 py-3 text-sm text-red-900 dark:bg-red-950/50 dark:text-red-100">
             <span className="font-medium">
@@ -242,40 +276,47 @@ export default function WerkstattPage() {
             </Button>
           </div>
         )}
-        {/* Read-only Stammdaten (wie Erfassung) */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Commission / Projektleiter</div>
+        {/* Read-only Stammdaten + Projektstatus + Pläne – kompakt */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Commission / PL</div>
             <div className="font-medium">
               {formatCommissionNr(auftrag.commissionNr)} · {auftrag.projektleiter}
             </div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Projekt / Kunde</div>
-            <div className="font-medium">{auftrag.projektKurzname}</div>
-            <div className="text-muted-foreground text-sm">{auftrag.kundeName}</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Projekt / Kunde</div>
+            <div className="font-medium text-sm">{auftrag.projektKurzname}</div>
+            <div className="text-muted-foreground text-xs">{auftrag.kundeName}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Prio</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Prio</div>
             <div className="font-medium">{auftrag.prio}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Deadline</div>
-            <div>{auftrag.deadline}</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Deadline</div>
+            <div className="flex items-center gap-2">
+              <span>{formatDateTimeCH(auftrag.deadline)}</span>
+              {auftrag.projektstatus === "fertig" && (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  fix
+                </Badge>
+              )}
+            </div>
             {auftrag.deadlineBestaetigt && (
               <span className="text-green-600 text-sm">✓ bestätigt</span>
             )}
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Blech · Format · Transport</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Blech · Format</div>
             <div>{auftrag.blechTyp} · {auftrag.format} · {auftrag.transport}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Anzahl / m²</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Anz. / m²</div>
             <div>{auftrag.anzahl} Stk. · {auftrag.flaechM2.toFixed(1)} m²</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Fertigung</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Fertigung</div>
             <div className="flex flex-wrap gap-1">
               {[
                 ["S", auftrag.scheren],
@@ -298,8 +339,8 @@ export default function WerkstattPage() {
               ))}
             </div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-sm">Pläne Original</div>
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground text-xs">Pläne Original</div>
             {auftrag.hatOriginalDatei ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary" className="text-sm">
@@ -310,7 +351,7 @@ export default function WerkstattPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 text-sm"
+                    className="h-7 text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDownloadOriginal(auftrag.id);
@@ -324,42 +365,62 @@ export default function WerkstattPage() {
               <span className="text-muted-foreground">–</span>
             )}
           </div>
-        </div>
 
-        {/* Bearbeitbar: Projektstatus – 3 große Buttons */}
-        <div className="space-y-2">
-          <div className="text-muted-foreground text-sm font-medium">
-            Projektstatus
+          {/* Projektstatus – kompakt */}
+          <div className="space-y-1.5">
+            <div className="text-muted-foreground text-xs font-medium">
+              Projektstatus
+            </div>
+            <div className="flex flex-wrap gap-2">
+            {PROJEKTSTATUS_OPTIONS.map(({ value, label }) => {
+              const isReadyTransport = value === "Ready für Transport";
+              const isTransportGeplant = value === "Transport geplant";
+              const isFertig = value === "fertig";
+              let disabled = false;
+              let titleHint = "";
+              if (isReadyTransport) {
+                disabled = !canSetReadyFürTransport(auftrag);
+                titleHint =
+                  "Nur möglich wenn alle Fertigungsschritte gestoppt sind und Mitarbeiter ausgefüllt";
+              } else if (isTransportGeplant) {
+                disabled = !canSetTransportGeplant(auftrag);
+                titleHint = "Nur möglich wenn vorher Ready für Transport";
+              } else if (isFertig) {
+                disabled = !canSetFertig(auftrag);
+                titleHint = "Nur möglich wenn vorher Transport geplant";
+              }
+              return (
+                <Button
+                  key={value}
+                  type="button"
+                  size="lg"
+                  variant={auftrag.projektstatus === value ? "default" : "outline"}
+                  className="min-h-12 min-w-[10rem] text-base"
+                  disabled={disabled}
+                  title={disabled ? titleHint : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (disabled) return;
+                    updateProjektstatus(auftrag.id, value);
+                  }}
+                >
+                  {label}
+                </Button>
+              );
+            })}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            {PROJEKTSTATUS_OPTIONS.map(({ value, label }) => (
+
+          {/* Pläne Ready */}
+          <div className="space-y-1.5">
+            <div className="text-muted-foreground text-xs font-medium">
+              Pläne Ready
+            </div>
+            {canDownloadReady ? (
               <Button
-                key={value}
                 type="button"
-                size="lg"
-                variant={auftrag.projektstatus === value ? "default" : "outline"}
-                className="min-h-12 min-w-[10rem] text-base"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateProjektstatus(auftrag.id, value);
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {/* Bearbeitbar: Pläne Ready – großer Download-Button */}
-        <div className="space-y-2">
-          <div className="text-muted-foreground text-sm font-medium">
-            Pläne Ready to Work
-          </div>
-          {canDownloadReady ? (
-            <Button
-              type="button"
-              size="lg"
-              className="min-h-14 min-w-full bg-green-600 text-lg hover:bg-green-700"
+                size="sm"
+                className="min-h-9 w-full bg-green-600 text-sm hover:bg-green-700"
               onClick={(e) => {
                 e.stopPropagation();
                 handleDownloadReady(auftrag.id);
@@ -367,19 +428,21 @@ export default function WerkstattPage() {
             >
               ↓ Pläne herunterladen
             </Button>
-          ) : (
-            <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-center">
-              Keine Pläne zum Herunterladen
-            </div>
-          )}
+            ) : (
+              <div className="text-muted-foreground rounded border border-dashed p-2 text-center text-xs">
+                Keine Pläne
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Bearbeitbar: Arbeitsschritte – Mitarbeiter zuerst, dann Start/Stop (touch-optimiert) */}
-        <div className="space-y-2">
-          <div className="text-muted-foreground text-sm font-medium">
+        {/* Arbeitsschritte – linksbündig, kompakt, ohne Scroll */}
+        <div className="mt-3 border-t border-muted-foreground/20 pt-3">
+        <div className="space-y-1.5">
+          <div className="text-muted-foreground text-xs font-medium">
             Arbeitsschritte
           </div>
-          <div className="flex flex-wrap gap-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {benoetigteSchritte.map((key) => {
               const step = steps[key];
               if (!step) return null;
@@ -388,16 +451,16 @@ export default function WerkstattPage() {
               const isActive = isRunning || isPaused;
               const kannBearbeiten =
                 auftrag.projektstatus === "Bearbeitung in WS";
+              const hatMitarbeiter = !!step.lead?.trim();
               return (
                 <div
                   key={key}
-                  className="flex flex-col items-center gap-2 rounded-lg border-2 border-muted-foreground/30 bg-muted/20 p-4"
+                  className="flex flex-col items-start gap-2 rounded-lg border-2 border-muted-foreground/30 bg-muted/20 p-3"
                 >
-                  <div className="text-foreground text-lg font-semibold">
+                  <div className="text-foreground text-base font-semibold">
                     {workStepLabels[key]}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* Mitarbeiter-Auswahl zuerst – logischer Ablauf: erst wer, dann Start */}
+                  <div className="flex w-full flex-col gap-2">
                     <select
                       className="border-input bg-background min-h-14 min-w-[8rem] cursor-pointer rounded-lg border-2 px-4 py-3 text-base font-medium"
                       value={step.lead ?? ""}
@@ -431,14 +494,20 @@ export default function WerkstattPage() {
                             ? ""
                             : "bg-green-600 hover:bg-green-700"
                         }`}
-                        disabled={!kannBearbeiten}
+                        disabled={!kannBearbeiten || !hatMitarbeiter}
+                        title={
+                          !hatMitarbeiter
+                            ? "Bitte zuerst Mitarbeiter auswählen"
+                            : undefined
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!kannBearbeiten) return;
                           stepAction(
                             auftrag.id,
                             key,
-                            isRunning ? "pause" : "start"
+                            isRunning ? "pause" : "start",
+                            step.lead
                           );
                         }}
                       >
@@ -459,11 +528,16 @@ export default function WerkstattPage() {
                         size="lg"
                         variant="destructive"
                         className="min-h-14 min-w-[8rem] text-base bg-red-600 hover:bg-red-700"
-                        disabled={!kannBearbeiten || !isActive}
+                        disabled={!kannBearbeiten || !isActive || !hatMitarbeiter}
+                        title={
+                          !hatMitarbeiter
+                            ? "Bitte zuerst Mitarbeiter auswählen"
+                            : undefined
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!kannBearbeiten) return;
-                          stepAction(auftrag.id, key, "stop");
+                          stepAction(auftrag.id, key, "stop", step.lead);
                         }}
                       >
                         <Square className="mr-1 h-5 w-5" />
@@ -471,13 +545,27 @@ export default function WerkstattPage() {
                       </Button>
                     </div>
                   </div>
-                  <span className="text-muted-foreground text-base">
+                  <span className="text-muted-foreground text-sm">
                     {formatMinuteSeconds(step.totalMinutes, step.startedAt)}
                   </span>
+                  {(step.startedBy || step.pausedBy || step.stoppedBy) && (
+                    <div className="text-muted-foreground flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
+                      {step.startedBy && (
+                        <span title="Gestartet von">▶ {step.startedBy}</span>
+                      )}
+                      {step.pausedBy && (
+                        <span title="Gepaust von">⏸ {step.pausedBy}</span>
+                      )}
+                      {step.stoppedBy && (
+                        <span title="Gestoppt von">⏹ {step.stoppedBy}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+        </div>
         </div>
       </div>
     );
@@ -491,7 +579,7 @@ export default function WerkstattPage() {
     return (
       <Fragment key={auftrag.id}>
         <TableRow
-          className={getRowClassName(auftrag)}
+          className={`${getRowClassName(auftrag)} ${isExpanded ? "ring-2 ring-primary/40 shadow-md bg-muted/30" : ""}`}
           onClick={() => toggleExpand(auftrag.id)}
         >
           <TableCell
@@ -516,9 +604,23 @@ export default function WerkstattPage() {
           )}
           <TableCell>
             <div className="flex flex-col gap-0.5 text-sm">
-              <span className="whitespace-nowrap">{auftrag.deadline}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="whitespace-nowrap">
+                  {formatDateTimeCH(auftrag.deadline)}
+                </span>
+                {auftrag.projektstatus === "fertig" && (
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    fix
+                  </Badge>
+                )}
+              </div>
               {auftrag.deadlineBestaetigt && (
                 <span className="text-green-600 text-xs">✓ bestätigt</span>
+              )}
+              {auftrag.projektstatus === "fertig" && auftrag.fertigAm && (
+                <span className="text-muted-foreground text-xs">
+                  Fertig: {formatDateTimeCH(auftrag.fertigAm)}
+                </span>
               )}
             </div>
           </TableCell>
@@ -644,9 +746,15 @@ export default function WerkstattPage() {
                     : inBearbeitung
                       ? "border-orange-500 bg-orange-500 text-white"
                       : "border-primary bg-primary text-primary-foreground";
+                const whoInfo = step
+                  ? [step.startedBy && `▶ ${step.startedBy}`, step.pausedBy && `⏸ ${step.pausedBy}`, step.stoppedBy && `⏹ ${step.stoppedBy}`]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "";
                 return (
                   <span
                     key={String(short)}
+                    title={whoInfo || undefined}
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${badgeClass}`}
                   >
                     {short}
@@ -679,8 +787,15 @@ export default function WerkstattPage() {
                 const step = steps[key];
                 if (!step) return null;
                 const short = WORKSHOP_STEP_SHORT[key];
+                const whoInfo = [step.startedBy && `▶ ${step.startedBy}`, step.pausedBy && `⏸ ${step.pausedBy}`, step.stoppedBy && `⏹ ${step.stoppedBy}`]
+                  .filter(Boolean)
+                  .join(" · ");
                 return (
-                  <span key={key} className="text-muted-foreground whitespace-nowrap">
+                  <span
+                    key={key}
+                    title={whoInfo || undefined}
+                    className="text-muted-foreground whitespace-nowrap"
+                  >
                     {short} {formatMinuteSeconds(step.totalMinutes, step.startedAt)}
                   </span>
                 );
@@ -777,21 +892,33 @@ export default function WerkstattPage() {
           </div>
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden">
-          {commissionFilter && (
-            <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-              <span className="text-muted-foreground">
-                Filter: Commission {commissionFilter}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setCommissionFilter("")}
-              >
-                Filter löschen
-              </Button>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <Input
+                type="search"
+                placeholder="Suchen (Commission, Projekt, Kunde, Blech…)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
             </div>
-          )}
+            {commissionFilter && (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                <span className="text-muted-foreground">
+                  Commission: {commissionFilter}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setCommissionFilter("")}
+                >
+                  Löschen
+                </Button>
+              </div>
+            )}
+          </div>
           <div className="mt-4 flex-1 overflow-hidden rounded-xl border bg-card">
             <div className="max-h-[85vh] flex flex-col gap-8 overflow-auto p-4">
               {/* Tabelle 1: Ready für WS · Bearbeitung in WS */}

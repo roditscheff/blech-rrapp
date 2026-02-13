@@ -33,6 +33,12 @@ export type WorkStepState = {
   totalMinutes: number;
   /** Lead-Mitarbeiter (4-Buchstaben-Kürzel, z.B. mifi, kaku) */
   lead?: string;
+  /** Wer hat gestartet (gesetzt bei Start) */
+  startedBy?: string;
+  /** Wer hat zuletzt gepaust (gesetzt bei Pause) */
+  pausedBy?: string;
+  /** Wer hat gestoppt (gesetzt bei Stop) */
+  stoppedBy?: string;
 };
 
 export type Auftrag = {
@@ -63,6 +69,8 @@ export type Auftrag = {
   steps?: Record<WorkStepKey, WorkStepState>;
   /** true wenn TB/Projektleiter Änderungen gemacht hat, während Projekt in Bearbeitung in WS war */
   aenderungenDurchPlanung?: boolean;
+  /** ISO-Zeitstempel wann Projekt auf „fertig“ gesetzt wurde */
+  fertigAm?: string;
 };
 
 export const workStepLabels: Record<WorkStepKey, string> = {

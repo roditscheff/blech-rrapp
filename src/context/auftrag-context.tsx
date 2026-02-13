@@ -14,7 +14,14 @@ import type {
   WorkStepKey,
   WorkStepState,
 } from "@/lib/auftrag-types";
-import { createStepState, initialAuftraege } from "@/lib/auftrag-data";
+import {
+  canSetFertig,
+  canSetReadyFürTransport,
+  canSetTransportGeplant,
+  createStepState,
+  initialAuftraege,
+  isFertigungsschritt,
+} from "@/lib/auftrag-data";
 
 type DateiStore = Map<number, { original?: Blob; ready?: Blob }>;
 
@@ -33,7 +40,8 @@ type AuftragContextValue = {
   stepAction: (
     id: number,
     stepKey: WorkStepKey,
-    action: "start" | "pause" | "stop"
+    action: "start" | "pause" | "stop",
+    lead?: string
   ) => void;
 };
 
@@ -47,7 +55,28 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
     setAuftraege((prev) =>
       prev.map((a) => {
         if (a.id !== id) return a;
+        if (
+          partial.projektstatus === "Ready für Transport" &&
+          !canSetReadyFürTransport(a)
+        ) {
+          return a;
+        }
+        if (
+          partial.projektstatus === "Transport geplant" &&
+          !canSetTransportGeplant(a)
+        ) {
+          return a;
+        }
+        if (partial.projektstatus === "fertig" && !canSetFertig(a)) {
+          return a;
+        }
         const next = { ...a, ...partial };
+        if (partial.projektstatus === "fertig") {
+          next.fertigAm = new Date().toISOString();
+        }
+        if (a.projektstatus === "fertig" && "deadline" in partial) {
+          delete next.deadline;
+        }
         if ("projektstatus" in partial && a.steps?.tb) {
           const status = next.projektstatus;
           const tbErforderlich =
@@ -67,8 +96,29 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
       setAuftraege((prev) =>
         prev.map((a) => {
           if (a.id !== id) return a;
-          const next = { ...a, ...partial };
-          if (a.projektstatus === "Bearbeitung in WS") {
+          if (
+            partial.projektstatus === "Ready für Transport" &&
+            !canSetReadyFürTransport(a)
+          ) {
+            return a;
+          }
+          if (
+            partial.projektstatus === "Transport geplant" &&
+            !canSetTransportGeplant(a)
+          ) {
+            return a;
+          }
+        if (partial.projektstatus === "fertig" && !canSetFertig(a)) {
+          return a;
+        }
+        const next = { ...a, ...partial };
+        if (partial.projektstatus === "fertig") {
+          next.fertigAm = new Date().toISOString();
+        }
+        if (a.projektstatus === "fertig" && "deadline" in partial) {
+          delete next.deadline;
+        }
+        if (a.projektstatus === "Bearbeitung in WS") {
             next.aenderungenDurchPlanung = true;
           }
           if ("projektstatus" in partial && a.steps?.tb) {
@@ -111,7 +161,25 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
     setAuftraege((prev) =>
       prev.map((a) => {
         if (a.id !== id) return a;
+        if (
+          status === "Ready für Transport" &&
+          !canSetReadyFürTransport(a)
+        ) {
+          return a;
+        }
+        if (
+          status === "Transport geplant" &&
+          !canSetTransportGeplant(a)
+        ) {
+          return a;
+        }
+        if (status === "fertig" && !canSetFertig(a)) {
+          return a;
+        }
         const next = { ...a, projektstatus: status };
+        if (status === "fertig") {
+          next.fertigAm = new Date().toISOString();
+        }
         const tbErforderlich =
           status === "offen" || status === "Bearbeitung in TB";
         if (a.steps?.tb) {
@@ -173,7 +241,8 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
     (
       id: number,
       stepKey: WorkStepKey,
-      action: "start" | "pause" | "stop"
+      action: "start" | "pause" | "stop",
+      lead?: string
     ) => {
       setAuftraege((prev) =>
         prev.map((a) => {
@@ -181,6 +250,12 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
           const steps = a.steps ?? createStepState(a);
           const current = steps[stepKey];
           if (!current) return a;
+          if (
+            isFertigungsschritt(stepKey) &&
+            !lead?.trim()
+          ) {
+            return a;
+          }
 
           const addElapsed = () => {
             if (!current.startedAt) return current.totalMinutes;
@@ -199,6 +274,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
                   isRunning: true,
                   isPaused: false,
                   startedAt: Date.now(),
+                  startedBy: lead ?? current.lead ?? current.startedBy,
                 },
               },
             };
@@ -216,6 +292,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
                   isPaused: true,
                   startedAt: undefined,
                   totalMinutes: addElapsed(),
+                  pausedBy: lead ?? current.lead ?? current.pausedBy,
                 },
               },
             };
@@ -233,6 +310,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
                   isPaused: false,
                   startedAt: undefined,
                   totalMinutes: addElapsed(),
+                  stoppedBy: lead ?? current.lead ?? current.stoppedBy,
                 },
               },
             };

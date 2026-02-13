@@ -4,7 +4,13 @@ import { Fragment, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { useAuftrag } from "@/context/auftrag-context";
-import { createStepState } from "@/lib/auftrag-data";
+import {
+  canSetFertig,
+  canSetReadyFürTransport,
+  canSetTransportGeplant,
+  createStepState,
+} from "@/lib/auftrag-data";
+import { formatDateTimeCH } from "@/lib/utils";
 import type { WorkStepKey, WorkStepState } from "@/lib/auftrag-types";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { ChevronDown, ChevronUp, Copy, Layers, Pause, Play, Square, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Layers, Pause, Play, Search, Square, Trash2 } from "lucide-react";
 
 type Projektstatus =
   | "offen"
@@ -71,6 +77,7 @@ type Auftrag = {
   behandeln: boolean;
   eckenGefeilt: boolean;
   steps?: Record<WorkStepKey, WorkStepState>;
+  fertigAm?: string;
 };
 
 type NewAuftrag = {
@@ -369,6 +376,7 @@ export default function PlanungPage() {
     createEmptyNewAuftrag(),
   );
   const [filter, setFilter] = useState<SpaltenFilter>(leereFilter);
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [, forceUpdate] = useState(0);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -402,20 +410,35 @@ export default function PlanungPage() {
     .filter((a) => a.projektstatus === "fertig")
     .sort((a, b) => a.prio - b.prio);
 
+  const filterBySearch = <T extends Auftrag>(list: T[]) => {
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter(
+      (a) =>
+        a.commissionNr.toLowerCase().includes(q) ||
+        a.projektKurzname.toLowerCase().includes(q) ||
+        a.kundeName.toLowerCase().includes(q) ||
+        a.projektleiter.toLowerCase().includes(q) ||
+        a.blechTyp.toLowerCase().includes(q) ||
+        a.format.toLowerCase().includes(q) ||
+        a.transport.toLowerCase().includes(q)
+    );
+  };
+
   const tab1Auftraege = sortByDeadlineFilter(
-    filterAuftraege(tab1Base, filter),
+    filterAuftraege(filterBySearch(tab1Base), filter),
     filter.deadlineFilter,
   );
   const transportAuftraege = sortByDeadlineFilter(
-    filterAuftraege(transportBase, filter),
+    filterAuftraege(filterBySearch(transportBase), filter),
     filter.deadlineFilter,
   );
   const tab2Auftraege = sortByDeadlineFilter(
-    filterAuftraege(tab2Base, filter),
+    filterAuftraege(filterBySearch(tab2Base), filter),
     filter.deadlineFilter,
   );
   const tab3Auftraege = sortByDeadlineFilter(
-    filterAuftraege(tab3Base, filter),
+    filterAuftraege(filterBySearch(tab3Base), filter),
     filter.deadlineFilter,
   );
 
@@ -842,13 +865,26 @@ export default function PlanungPage() {
         </div>
         <div className="space-y-1 text-sm">
           <div className="font-medium">Deadline (Datum &amp; Zeit)</div>
-          <Input
-            type="datetime-local"
-            value={formAuftrag.deadline}
-            onChange={(e) =>
-              setFormAuftrag((prev) => ({ ...prev, deadline: e.target.value }))
-            }
-          />
+          {formMode === "edit" &&
+          editingId != null &&
+          auftraege.find((a) => a.id === editingId)?.projektstatus === "fertig" ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm">
+                {formatDateTimeCH(formAuftrag.deadline)}
+              </span>
+              <Badge variant="secondary" className="text-xs font-normal">
+                fix
+              </Badge>
+            </div>
+          ) : (
+            <Input
+              type="datetime-local"
+              value={formAuftrag.deadline}
+              onChange={(e) =>
+                setFormAuftrag((prev) => ({ ...prev, deadline: e.target.value }))
+              }
+            />
+          )}
         </div>
         <div className="space-y-1 text-sm">
           <div className="font-medium">Deadline bestätigt</div>
@@ -875,6 +911,14 @@ export default function PlanungPage() {
               formMode === "edit" && editAuftrag ? editAuftrag.hatReadyDatei : false;
             const formData = { ...formAuftrag, hatReadyDatei: hatReady };
             const kannReady = canSetReadyFürWS(formData);
+            const kannReadyTransport =
+              editAuftrag != null ? canSetReadyFürTransport(editAuftrag) : false;
+            const kannTransportGeplant = canSetTransportGeplant({
+              projektstatus: formAuftrag.projektstatus,
+            } as Auftrag);
+            const kannFertig = canSetFertig({
+              projektstatus: formAuftrag.projektstatus,
+            } as Auftrag);
             return (
               <select
                 className="border-input bg-background text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-10 rounded-md border px-2"
@@ -882,6 +926,9 @@ export default function PlanungPage() {
                 onChange={(e) => {
                   const v = e.target.value as Projektstatus;
                   if (v === "Ready für WS" && !kannReady) return;
+                  if (v === "Ready für Transport" && !kannReadyTransport) return;
+                  if (v === "Transport geplant" && !kannTransportGeplant) return;
+                  if (v === "fertig" && !kannFertig) return;
                   setFormAuftrag((prev) => ({ ...prev, projektstatus: v }));
                 }}
               >
@@ -899,9 +946,39 @@ export default function PlanungPage() {
                   Ready für WS
                 </option>
                 <option value="Bearbeitung in WS">Bearbeitung in WS</option>
-                <option value="Ready für Transport">Ready für Transport</option>
-                <option value="Transport geplant">Transport geplant</option>
-                <option value="fertig">fertig</option>
+                <option
+                  value="Ready für Transport"
+                  disabled={!kannReadyTransport}
+                  title={
+                    !kannReadyTransport
+                      ? "Nur möglich wenn alle Fertigungsschritte gestoppt sind und Mitarbeiter ausgefüllt"
+                      : undefined
+                  }
+                >
+                  Ready für Transport
+                </option>
+                <option
+                  value="Transport geplant"
+                  disabled={!kannTransportGeplant}
+                  title={
+                    !kannTransportGeplant
+                      ? "Nur möglich wenn vorher Ready für Transport"
+                      : undefined
+                  }
+                >
+                  Transport geplant
+                </option>
+                <option
+                  value="fertig"
+                  disabled={!kannFertig}
+                  title={
+                    !kannFertig
+                      ? "Nur möglich wenn vorher Transport geplant"
+                      : undefined
+                  }
+                >
+                  fertig
+                </option>
               </select>
             );
           })()}
@@ -1079,16 +1156,27 @@ export default function PlanungPage() {
       )}
       <TableCell onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-1">
-          <Input
-            type="datetime-local"
-            className="h-11 text-sm"
-            value={auftrag.deadline}
-            onChange={(e) =>
-              updateAuftragFromPlanung(auftrag.id, {
-                deadline: e.target.value,
-              })
-            }
-          />
+          {auftrag.projektstatus === "fertig" ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm">
+                {formatDateTimeCH(auftrag.deadline)}
+              </span>
+              <Badge variant="secondary" className="text-xs font-normal">
+                fix
+              </Badge>
+            </div>
+          ) : (
+            <Input
+              type="datetime-local"
+              className="h-11 text-sm"
+              value={auftrag.deadline}
+              onChange={(e) =>
+                updateAuftragFromPlanung(auftrag.id, {
+                  deadline: e.target.value,
+                })
+              }
+            />
+          )}
           {auftrag.deadlineBestaetigt && (
             <span
               className="text-green-600 text-sm"
@@ -1097,6 +1185,11 @@ export default function PlanungPage() {
               ✓ bestätigt
             </span>
           )}
+          {auftrag.projektstatus === "fertig" && auftrag.fertigAm && (
+              <span className="text-muted-foreground text-xs">
+                Fertig: {formatDateTimeCH(auftrag.fertigAm)}
+              </span>
+            )}
         </div>
       </TableCell>
       <TableCell className="font-medium" onClick={(e) => e.stopPropagation()}>
@@ -1171,6 +1264,17 @@ export default function PlanungPage() {
               !canSetReadyFürWS(auftrag)
             )
               return;
+            if (
+              v === "Ready für Transport" &&
+              !canSetReadyFürTransport(auftrag)
+            )
+              return;
+            if (
+              v === "Transport geplant" &&
+              !canSetTransportGeplant(auftrag)
+            )
+              return;
+            if (v === "fertig" && !canSetFertig(auftrag)) return;
             updateAuftragFromPlanung(auftrag.id, {
               projektstatus: v,
             });
@@ -1190,9 +1294,39 @@ export default function PlanungPage() {
             Ready für WS
           </option>
           <option value="Bearbeitung in WS">Bearbeitung in WS</option>
-          <option value="Ready für Transport">Ready für Transport</option>
-          <option value="Transport geplant">Transport geplant</option>
-          <option value="fertig">fertig</option>
+          <option
+            value="Ready für Transport"
+            disabled={!canSetReadyFürTransport(auftrag)}
+            title={
+              !canSetReadyFürTransport(auftrag)
+                ? "Nur möglich wenn alle Fertigungsschritte gestoppt sind und Mitarbeiter ausgefüllt"
+                : undefined
+            }
+          >
+            Ready für Transport
+          </option>
+          <option
+            value="Transport geplant"
+            disabled={!canSetTransportGeplant(auftrag)}
+            title={
+              !canSetTransportGeplant(auftrag)
+                ? "Nur möglich wenn vorher Ready für Transport"
+                : undefined
+            }
+          >
+            Transport geplant
+          </option>
+          <option
+            value="fertig"
+            disabled={!canSetFertig(auftrag)}
+            title={
+              !canSetFertig(auftrag)
+                ? "Nur möglich wenn vorher Transport geplant"
+                : undefined
+            }
+          >
+            fertig
+          </option>
         </select>
       </TableCell>
       <TableCell>
@@ -1244,9 +1378,15 @@ export default function PlanungPage() {
                 : inBearbeitung
                   ? "border-orange-500 bg-orange-500 text-white"
                   : "border-primary bg-primary text-primary-foreground";
+            const whoInfo = step
+              ? [step.startedBy && `▶ ${step.startedBy}`, step.pausedBy && `⏸ ${step.pausedBy}`, step.stoppedBy && `⏹ ${step.stoppedBy}`]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "";
             return (
               <span
                 key={String(short)}
+                title={whoInfo || undefined}
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${badgeClass}`}
               >
                 {short}
@@ -1478,7 +1618,20 @@ export default function PlanungPage() {
             <div className="mt-4">{renderPlanungFormContent()}</div>
           )}
 
-          <div className="mt-4 flex-1 overflow-hidden rounded-xl border bg-card">
+          <div className="mt-4">
+            <div className="relative max-w-md">
+              <Search className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <Input
+                type="search"
+                placeholder="Suchen (Commission, Projekt, Kunde, Blech…)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="mt-2 flex-1 overflow-hidden rounded-xl border bg-card">
             <div className="max-h-[70vh] flex flex-col gap-8 overflow-auto p-4">
               {/* Tabelle 1: Ready für WS · Bearbeitung in WS */}
               <section className="flex flex-col gap-3 rounded-lg border-2 border-green-200 bg-green-50/50 p-4 shadow-sm dark:border-green-800 dark:bg-green-950/20">
