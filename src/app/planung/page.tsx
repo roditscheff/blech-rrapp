@@ -6,6 +6,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useAuftrag } from "@/context/auftrag-context";
 import { createStepState } from "@/lib/auftrag-data";
+import type { WorkStepKey, WorkStepState } from "@/lib/auftrag-types";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -70,10 +71,7 @@ type Auftrag = {
   schweissen: boolean;
   behandeln: boolean;
   eckenGefeilt: boolean;
-  steps?: Record<
-    string,
-    { erforderlich: boolean; isRunning?: boolean; startedAt?: number; totalMinutes: number }
-  >;
+  steps?: Record<WorkStepKey, WorkStepState>;
 };
 
 type NewAuftrag = {
@@ -528,13 +526,15 @@ export default function PlanungPage() {
 
   const handleCopyAuftrag = (auftrag: Auftrag) => {
     const newId = getNextId();
+    const { steps: _steps, ...auftragOhneSteps } = auftrag;
     const copy: Auftrag = {
-      ...auftrag,
+      ...auftragOhneSteps,
       id: newId,
       hatOriginalDatei: false,
       originalDateiName: undefined,
       hatReadyDatei: false,
       readyDateiName: undefined,
+      steps: undefined,
     };
     const base = getBaseCommissionNr(auftrag.commissionNr);
     copy.commissionNr = computeCommissionNrWithSuffix(base, [...auftraege, copy]);
