@@ -6,15 +6,18 @@ import { usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { LucideIcon } from "lucide-react";
 import { Home } from "lucide-react";
 
-const navItems = [
+type NavItem = { href: string; label: string; icon?: LucideIcon };
+
+const navItems: NavItem[] = [
   { href: "/", label: "Home", icon: Home },
   { href: "/planung", label: "Planung" },
   { href: "/werkstatt", label: "Werkstatt" },
   { href: "/auswertung", label: "Auswertung" },
   { href: "/benutzer", label: "Benutzer" },
-] as const;
+];
 
 export function Header() {
   const pathname = usePathname();
