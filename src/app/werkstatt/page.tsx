@@ -66,6 +66,7 @@ const FERTIGUNG_KEYS: WorkStepKey[] = [
 ];
 
 const WORKSHOP_STEP_SHORT: Record<WorkStepKey, string> = {
+  tb: "TB",
   scheren: "S",
   lasern: "L",
   kanten: "K",
@@ -622,7 +623,7 @@ export default function WerkstattPage() {
               {benoetigteSchritte.map((key) => {
                 const step = steps[key];
                 if (!step) return null;
-                const short = { scheren: "S", lasern: "L", kanten: "K", schweissen: "W", behandeln: "B", eckenGefeilt: "E" }[key];
+                const short = WORKSHOP_STEP_SHORT[key];
                 return (
                   <span key={key} className="text-muted-foreground whitespace-nowrap">
                     {short} {formatMinuteSeconds(step.totalMinutes, step.startedAt)}
@@ -763,7 +764,7 @@ export default function WerkstattPage() {
                     {tableHeader}
                   </TableHeader>
                   <TableBody>
-                    {tab1.map(renderRow)}
+                    {tab1.map((a) => renderRow(a))}
                     {tab1.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={16} className="py-8 text-center text-muted-foreground">
@@ -785,7 +786,7 @@ export default function WerkstattPage() {
                     {tableHeader}
                   </TableHeader>
                   <TableBody>
-                    {transport.map(renderRow)}
+                    {transport.map((a) => renderRow(a))}
                     {transport.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={16} className="py-8 text-center text-muted-foreground">
@@ -807,7 +808,7 @@ export default function WerkstattPage() {
                     {tableHeader}
                   </TableHeader>
                   <TableBody>
-                    {tab2.map(renderRow)}
+                    {tab2.map((a) => renderRow(a))}
                     {tab2.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={16} className="py-8 text-center text-muted-foreground">
