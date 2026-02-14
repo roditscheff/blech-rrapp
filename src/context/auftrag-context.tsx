@@ -75,7 +75,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
           next.fertigAm = new Date().toISOString();
         }
         if (a.projektstatus === "fertig" && "deadline" in partial) {
-          delete next.deadline;
+          next.deadline = a.deadline;
         }
         if ("projektstatus" in partial && a.steps?.tb) {
           const status = next.projektstatus;
@@ -116,7 +116,7 @@ export function AuftragProvider({ children }: { children: ReactNode }) {
           next.fertigAm = new Date().toISOString();
         }
         if (a.projektstatus === "fertig" && "deadline" in partial) {
-          delete next.deadline;
+          next.deadline = a.deadline;
         }
         if (a.projektstatus === "Bearbeitung in WS") {
             next.aenderungenDurchPlanung = true;
